@@ -4,6 +4,25 @@ const path = require("node:path");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const DEVICE_API_KEY = process.env.DEVICE_API_KEY;
+
+function requireDeviceKey(req, res, next) {
+  if (!DEVICE_API_KEY) {
+    return res.status(503).json({
+      error: "Device API key is not configured"
+    });
+  }
+
+  if (req.get("X-Device-Key") !== DEVICE_API_KEY) {
+    return res.status(401).json({
+      error: "Invalid device key"
+    });
+  }
+
+  next();
+}
+
+
 // 解析网页发送的JSON。
 app.use(express.json({ limit: "10kb" }));
 
@@ -96,6 +115,12 @@ app.get("/api/parking", (req, res) => {
 app.post("/api/simulation/occupancy", (req, res) => {
   const { bay_id, occupancy } = req.body || {};
 
+  if (bay_id === "P1") {
+    return res.status(403).json({
+      error: "P1 使用真实硬件，请选择 P2 或 P3 进行模拟"
+    });
+  }
+
   const bay = bays.find(item => item.bay_id === bay_id);
 
   if (!bay) {
@@ -150,7 +175,7 @@ app.post("/api/simulation/occupancy", (req, res) => {
 });
 
 // 接收硬件上传的车位状态
-app.post("/api/device/state", (req, res) => {
+app.post("/api/device/state",requireDeviceKey, (req, res) => {
   const {
     bay_id,
     distance_cm,
