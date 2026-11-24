@@ -1,222 +1,88 @@
 const express = require("express");
 const path = require("node:path");
-
 const app = express();
 const PORT = process.env.PORT || 3000;
-
 const DEVICE_API_KEY = process.env.DEVICE_API_KEY;
+const DEVICE_TIMEOUT_MS = 10_000;
+const lastHardwareSeen = new Map();
+const bays = ["P1", "P2"].map(bay_id => ({
+  bay_id, distance_cm: null, occupancy: "unknown",
+  brightness_pct: null, mode: "auto"
+}));
+
+app.use(express.json({ limit: "10kb" }));
+app.use(express.static(path.join(__dirname, "public")));
 
 function requireDeviceKey(req, res, next) {
   if (!DEVICE_API_KEY) {
-    return res.status(503).json({
-      error: "Device API key is not configured"
-    });
+    return res.status(503).json({ error: "Device API key is not configured" });
   }
-
   if (req.get("X-Device-Key") !== DEVICE_API_KEY) {
-    return res.status(401).json({
-      error: "Invalid device key"
-    });
+    return res.status(401).json({ error: "Invalid device key" });
   }
-
   next();
 }
 
-
-// 解析网页发送的JSON。
-app.use(express.json({ limit: "10kb" }));
-
-// 提供网页。
-app.use(express.static(path.join(__dirname, "public")));
-
-const bays = [
-  {
-    bay_id: "P1",
-    distance_cm: 30,
-    occupancy: "free",
-    brightness_pct: 100,
-    mode: "auto",
-  },
-  {
-    bay_id: "P2",
-    distance_cm: 8,
-    occupancy: "occupied",
-    brightness_pct: 40,
-    mode: "auto",
-  },
-  {
-    bay_id: "P3",
-    distance_cm: 30,
-    occupancy: "free",
-    brightness_pct: 100,
-    mode: "auto",
-  },
-];
-
-const lastHardwareSeen = new Map();
-const DEVICE_TIMEOUT_MS = 10_000;
-
-// 每个车位独立管理调暗计时器。
-const dimTimers = new Map();
-const PARK_DELAY_MS = 5000;
-
-// 查询车位状态。
 app.get("/api/parking", (req, res) => {
   res.set("Cache-Control", "no-store");
-
   const now = Date.now();
-
   const result = bays.map(bay => {
-    // 目前只有 P1 接入硬件，P2、P3 仍为模拟数据
-    const isHardware = bay.bay_id === "P1";
-
-    if (!isHardware) {
-      return {
-        ...bay,
-        data_source: "simulation",
-        online: null,
-        last_seen: null
-      };
-    }
-
-    const lastSeen = lastHardwareSeen.get(bay.bay_id);
-
-    const online =
-      lastSeen !== undefined &&
-      now - lastSeen < DEVICE_TIMEOUT_MS;
-
+    const seen = lastHardwareSeen.get(bay.bay_id);
+    const online = seen !== undefined && now - seen < DEVICE_TIMEOUT_MS;
     return {
-      ...bay,
-      data_source: "hardware",
-      online,
-      last_seen:
-        lastSeen === undefined
-          ? null
-          : new Date(lastSeen).toISOString(),
-
-      // 离线后不再把旧数据当成实时结果
+      ...bay, data_source: "hardware", online,
+      last_seen: seen === undefined ? null : new Date(seen).toISOString(),
       occupancy: online ? bay.occupancy : "unknown",
       distance_cm: online ? bay.distance_cm : null,
       brightness_pct: online ? bay.brightness_pct : null
     };
   });
-
-  res.json({
-    data_source: "mixed",
-    total: result.length,
-    available: result.filter(
-      bay => bay.occupancy === "free"
-    ).length,
-    bays: result
-  });
+  res.json({ data_source: "hardware", total: result.length,
+    available: result.filter(bay => bay.occupancy === "free").length,
+    bays: result });
 });
 
-// 本地开发用：模拟车辆进入或离开。
+// Both bays now use hardware. Simulation must not overwrite them.
 app.post("/api/simulation/occupancy", (req, res) => {
-  const { bay_id, occupancy } = req.body || {};
-
-  if (bay_id === "P1") {
-    return res.status(403).json({
-      error: "P1 使用真实硬件，请选择 P2 或 P3 进行模拟"
-    });
-  }
-
-  const bay = bays.find(item => item.bay_id === bay_id);
-
-  if (!bay) {
-    return res.status(400).json({
-      error: "车位编号必须是P1、P2或P3",
-    });
-  }
-
-  if (!["free", "occupied"].includes(occupancy)) {
-    return res.status(400).json({
-      error: "occupancy必须是free或occupied",
-    });
-  }
-
-  // 重复点击相同状态，不重新开始计时。
-  if (bay.occupancy === occupancy) {
-    return res.json({
-      message: "车位已经处于该状态",
-      bay,
-    });
-  }
-
-  // 车辆提前离开时，取消尚未完成的调暗任务。
-  clearTimeout(dimTimers.get(bay_id));
-  dimTimers.delete(bay_id);
-
-  bay.occupancy = occupancy;
-  bay.distance_cm = occupancy === "occupied" ? 8 : 30;
-  bay.brightness_pct = 100;
-
-  if (occupancy === "occupied") {
-    const timer = setTimeout(() => {
-      if (bay.occupancy === "occupied") {
-        bay.brightness_pct = 40;
-      }
-
-      dimTimers.delete(bay_id);
-      console.log(`${bay_id}: 灯光降至40%`);
-    }, PARK_DELAY_MS);
-
-    dimTimers.set(bay_id, timer);
-  }
-
-  console.log(`${bay_id}: ${occupancy}`);
-
-  res.json({
-    message: occupancy === "occupied"
-      ? `${bay_id}车辆进入，5秒后调暗`
-      : `${bay_id}车辆离开，恢复全亮`,
-    bay,
-  });
+  res.status(403).json({ error: "P1、P2 均已改为真实硬件，模拟接口已停用" });
 });
 
-// 接收硬件上传的车位状态
-app.post("/api/device/state",requireDeviceKey, (req, res) => {
-  const {
-    bay_id,
-    distance_cm,
-    occupancy,
-    brightness_pct
-  } = req.body ?? {};
-
-  const bay = bays.find(item => item.bay_id === bay_id);
-
-  if (!bay) {
-    return res.status(400).json({ error: "Unknown bay_id" });
+app.post("/api/device/state", requireDeviceKey, (req, res) => {
+  const body = req.body;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return res.status(400).json({ error: "Invalid request body" });
   }
-
-  const validDistance =
-    distance_cm === null ||
-    (typeof distance_cm === "number" &&
-      Number.isFinite(distance_cm) &&
-      distance_cm >= 0);
-
-  if (
-    !validDistance ||
-    !["free", "occupied", "unknown"].includes(occupancy) ||
-    ![100, 40].includes(brightness_pct)
-  ) {
-    return res.status(400).json({ error: "Invalid state data" });
+  // Accept a complete two-bay batch, or a legacy single-bay report.
+  const batch = Object.hasOwn(body, "bays");
+  const updates = batch ? body.bays : [body];
+  if (!Array.isArray(updates) || (batch && updates.length !== 2)) {
+    return res.status(400).json({ error: "Expected exactly two bays" });
   }
-
-  Object.assign(bay, {
-    distance_cm,
-    occupancy,
-    brightness_pct
-  });
-  
-  lastHardwareSeen.set(bay_id, Date.now());
-
-  console.log("Hardware update:", bay);
-
-  res.json({ ok: true, bay });
+  const ids = new Set();
+  for (const item of updates) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return res.status(400).json({ error: "Invalid bay data" });
+    }
+    const validDistance = item.distance_cm === null ||
+      (Number.isFinite(item.distance_cm) && item.distance_cm >= 2 && item.distance_cm <= 200);
+    if (!bays.some(bay => bay.bay_id === item.bay_id) || ids.has(item.bay_id) ||
+        !validDistance || !["free", "occupied", "unknown"].includes(item.occupancy) ||
+        ![100, 40].includes(item.brightness_pct)) {
+      return res.status(400).json({ error: "Invalid bay data" });
+    }
+    ids.add(item.bay_id);
+  }
+  // Validate the entire batch before applying either update.
+  const now = Date.now();
+  for (const item of updates) {
+    const bay = bays.find(bay => bay.bay_id === item.bay_id);
+    Object.assign(bay, { distance_cm: item.distance_cm,
+      occupancy: item.occupancy, brightness_pct: item.brightness_pct });
+    lastHardwareSeen.set(item.bay_id, now);
+  }
+  res.json({ ok: true, updated: [...ids] });
 });
 
-// 本阶段仅监听本机，模拟接口暂不发布公网。
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Two-bay parking server listening on port ${PORT}`);
 });
