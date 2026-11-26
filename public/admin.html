@@ -1,0 +1,13 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理照明 · 智慧停车</title><link rel="stylesheet" href="/style.css"><script src="/admin.js" defer></script></head><body><main>
+<header><div><div class="eyebrow">PARKING CONTROL</div><h1>照明管理</h1><p class="muted">自动节能，也保留人工控制。</p></div><a href="/">司机查看页</a></header>
+<div id="message" class="notice" role="status" aria-live="polite">请先登录管理员</div>
+<form id="login" class="panel"><label for="password">管理员密码</label><div class="row"><input id="password" type="password" autocomplete="current-password" required><button class="primary" type="submit">登录</button></div><p class="muted">管理密码与设备通信密钥分开设置。</p></form>
+<div id="dashboard" hidden>
+<section class="panel"><div class="bay-header"><h2>停车场运行模式</h2><button id="logout">退出登录</button></div>
+<div class="row toolbar" id="facility"><button data-action="auto">营业自动</button><button data-action="on">照明全部全亮</button><button data-action="closed" class="danger">停业关闭全部灯</button></div>
+<p id="command" aria-live="polite"></p><p id="actual" class="muted"></p>
+<p class="muted">全场模式优先于单灯操作；恢复营业自动会同时取消所有单灯手动设置。</p>
+</section><section id="bays" class="grid"></section>
+<div class="notice warning">关闭操作仅控制课程模型中的灯。实际停车场需先确认清场，并保留独立安全及应急照明。空位指示手动测试期间，司机页暂停推荐空位。</div>
+<p class="footer">“设备已确认”表示 Nano 已应用输出设置，尚无额外传感器验证 LED 实际发光。低亮度为 20% PWM 演示设定，不等于实测照度或节能率。</p>
+</div></main></body></html>

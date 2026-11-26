@@ -1,17 +1,13 @@
 {
-  "name": "parking-iot",
-  "version": "1.0.0",
+  "name": "parking-smart-lighting-v3",
+  "version": "3.0.0",
   "private": true,
-  "main": "server.cjs",
-  "scripts": {
-    "start": "node server.cjs",
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "engines": {
+    "node": ">=22.9"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "dependencies": {
-    "express": "^5.3.0"
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.cjs",
+    "test": "node --test ../tests/*.test.cjs",
+    "preview": "node preview.cjs"
   }
 }
